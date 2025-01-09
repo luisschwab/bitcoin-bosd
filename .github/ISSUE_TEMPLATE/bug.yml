@@ -47,23 +47,11 @@ body:
         - Windows (ARM)
     validations:
       required: false
-  - type: textarea
-    id: fullnode-version
-    attributes:
-      # FIXME: use `--version` instead
-      label: What is the sha256 checksum of the full node you are running?
-    validations:
-      required: false
-  - type: input
-    attributes:
-      label: If you've built the full node from source, provide the full command you used
-    validations:
-      required: false
   - type: checkboxes
     id: terms
     attributes:
       label: Code of Conduct
-      description: By submitting this issue, you agree to follow our [Code of Conduct](https://github.com/alpenlabs/strata/blob/main/CONTRIBUTING.md#code-of-conduct)
+      description: By submitting this issue, you agree to follow our [Code of Conduct](https://github.com/alpenlabs/bitcoin-bosd/blob/main/CONTRIBUTING.md#code-of-conduct)
       options:
         - label: I agree to follow the Code of Conduct
           required: true

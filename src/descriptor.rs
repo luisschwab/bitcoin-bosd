@@ -4,7 +4,32 @@
 //!
 //! The main type is [`Descriptor`].
 
+use std::{
+    fmt::{Display, Formatter},
+    str::FromStr,
+};
+
+use hex::{DisplayHex, FromHex};
+
 use crate::error::DescriptorError;
+
+/// Maximum length of `OP_RETURN` payload.
+pub(crate) const MAX_OP_RETURN_LEN: usize = 80;
+
+/// Exact length of P2PKH payload.
+pub(crate) const P2PKH_LEN: usize = 20;
+
+/// Exact length of P2SH payload.
+pub(crate) const P2SH_LEN: usize = 20;
+
+/// Exact length of P2WPKH payload.
+pub(crate) const P2WPKH_LEN: usize = 20;
+
+/// Exact length of P2WSH payload.
+pub(crate) const P2WSH_LEN: usize = 32;
+
+/// Exact length of P2TR payload.
+pub(crate) const P2TR_LEN: usize = 32;
 
 /// A Bitcoin Output Script Descriptor (BOSD).
 ///
@@ -16,20 +41,73 @@ use crate::error::DescriptorError;
 /// See [the Bitcoin developer guide on Transactions](https://developer.bitcoin.org/devguide/transactions.html)
 /// for more information on standardness.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Descriptor<'a> {
+#[repr(C)]
+pub struct Descriptor {
     /// The type of the descriptor.
     type_tag: DescriptorType,
 
     /// The actual underlying data.
-    payload: &'a [u8],
+    payload: Vec<u8>,
 }
 
-impl<'a> Descriptor<'a> {
+impl Descriptor {
     /// Constructs a new [`Descriptor`] from a byte slice.
-    pub fn from_bytes(bytes: &'a [u8]) -> Result<Self, DescriptorError> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, DescriptorError> {
         let type_tag = DescriptorType::from_u8(bytes[0])?;
-        let payload = &bytes[1..];
-        Ok(Self { type_tag, payload })
+        let payload = bytes[1..].to_vec();
+        match type_tag {
+            // OP_RETURN should be less than 80 bytes.
+            DescriptorType::OpReturn => {
+                let payload_len = payload.len();
+                if payload_len > MAX_OP_RETURN_LEN {
+                    Err(DescriptorError::InvalidPayloadLength(payload_len))
+                } else {
+                    Ok(Self { type_tag, payload })
+                }
+            }
+            // P2PKH, P2SH, P2WPKH should be all 20 bytes.
+            DescriptorType::P2pkh => {
+                let payload_len = payload.len();
+                if payload_len != P2PKH_LEN {
+                    Err(DescriptorError::InvalidPayloadLength(payload_len))
+                } else {
+                    Ok(Self { type_tag, payload })
+                }
+            }
+            DescriptorType::P2sh => {
+                let payload_len = payload.len();
+                if payload_len != P2SH_LEN {
+                    Err(DescriptorError::InvalidPayloadLength(payload_len))
+                } else {
+                    Ok(Self { type_tag, payload })
+                }
+            }
+            DescriptorType::P2wpkh => {
+                let payload_len = payload.len();
+                if payload_len != P2WPKH_LEN {
+                    Err(DescriptorError::InvalidPayloadLength(payload_len))
+                } else {
+                    Ok(Self { type_tag, payload })
+                }
+            }
+            // P2WSH and P2TR should be all 32 bytes.
+            DescriptorType::P2wsh => {
+                let payload_len = payload.len();
+                if payload_len != P2WSH_LEN {
+                    Err(DescriptorError::InvalidPayloadLength(payload_len))
+                } else {
+                    Ok(Self { type_tag, payload })
+                }
+            }
+            DescriptorType::P2tr => {
+                let payload_len = payload.len();
+                if payload_len != P2TR_LEN {
+                    Err(DescriptorError::InvalidPayloadLength(payload_len))
+                } else {
+                    Ok(Self { type_tag, payload })
+                }
+            }
+        }
     }
 
     /// Returns the type tag of the descriptor.
@@ -47,7 +125,23 @@ impl<'a> Descriptor<'a> {
     /// or as a Bitcoin script by using [`Descriptor::to_script_pubkey`] in
     /// the case of an `OP_RETURN` payload.
     pub fn payload(&self) -> &[u8] {
-        self.payload
+        self.payload.as_slice()
+    }
+}
+
+impl Display for Descriptor {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        let type_tag = self.type_tag().to_u8();
+        write!(f, "{}{}", &[type_tag].as_hex(), self.payload.as_hex())
+    }
+}
+
+impl FromStr for Descriptor {
+    type Err = DescriptorError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let bytes = Vec::from_hex(s)?;
+        Self::from_bytes(&bytes)
     }
 }
 
@@ -120,6 +214,15 @@ impl DescriptorType {
             _ => Err(DescriptorError::InvalidDescriptorType(byte)),
         }
     }
+
+    #[allow(dead_code)]
+    fn from_byte(byte: &[u8]) -> Result<Self, DescriptorError> {
+        if byte.len() != 1 {
+            return Err(DescriptorError::InvalidDescriptorTypeLength(byte.len()));
+        }
+        let byte = byte[0];
+        Self::from_u8(byte)
+    }
 }
 
 #[cfg(test)]
@@ -136,7 +239,21 @@ mod tests {
 
     #[test]
     fn descriptor_from_bytes_invalid() {
+        // Invalid type tag
         let bytes = [6, 1, 2, 3, 4, 5, 6];
+        assert!(Descriptor::from_bytes(&bytes).is_err());
+
+        // Invalid payload length
+        // OP_RETURN with 81 bytes
+        let bytes = [0; 82];
+        assert!(Descriptor::from_bytes(&bytes).is_err());
+
+        // P2PKH with 19 bytes
+        let bytes = [1; 20];
+        assert!(Descriptor::from_bytes(&bytes).is_err());
+
+        // P2TR with 33 bytes
+        let bytes = [5; 34];
         assert!(Descriptor::from_bytes(&bytes).is_err());
     }
 
@@ -170,5 +287,109 @@ mod tests {
     fn invalid_descriptor_type() {
         assert!(DescriptorType::from_u8(6).is_err());
         assert!(DescriptorType::from_u8(7).is_err());
+    }
+
+    #[test]
+    fn from_str() {
+        // OP_RETURN in hex string replacing the 6a (`OP_RETURN`)
+        // for a 0x00 (type_tag) byte for `OP_RETURN`.
+        // Source: https://bitcoin.stackexchange.com/a/29555
+        //         and transaction 8bae12b5f4c088d940733dcd1455efc6a3a69cf9340e17a981286d3778615684
+        let s = "00636861726c6579206c6f766573206865696469";
+        let desc = Descriptor::from_str(s).unwrap();
+        assert_eq!(desc.type_tag(), DescriptorType::OpReturn);
+        assert_eq!(desc.payload(), b"charley loves heidi");
+
+        // P2PKH
+        // Using 0x01 (type_tag) and a 20-byte hash
+        // Source: transaction 8bae12b5f4c088d940733dcd1455efc6a3a69cf9340e17a981286d3778615684
+        // Corresponds to address `1HnhWpkMHMjgt167kvgcPyurMmsCQ2WPgg`
+        let s = "01b8268ce4d481413c4e848ff353cd16104291c45b";
+        let desc = Descriptor::from_str(s).unwrap();
+        assert_eq!(desc.type_tag(), DescriptorType::P2pkh);
+        assert_eq!(
+            desc.payload(),
+            Vec::from_hex("b8268ce4d481413c4e848ff353cd16104291c45b").unwrap()
+        );
+
+        // P2SH
+        // Using 0x02 (type_tag) and a 20-byte hash
+        // Source: transaction a0f1aaa2fb4582c89e0511df0374a5a2833bf95f7314f4a51b55b7b71e90ce0f
+        // Corresponds to address `3CK4fEwbMP7heJarmU4eqA3sMbVJyEnU3V`
+        let s = "02748284390f9e263a4b766a75d0633c50426eb875";
+        let desc = Descriptor::from_str(s).unwrap();
+        assert_eq!(desc.type_tag(), DescriptorType::P2sh);
+        assert_eq!(
+            desc.payload(),
+            Vec::from_hex("748284390f9e263a4b766a75d0633c50426eb875").unwrap()
+        );
+
+        // P2WPKH
+        // Using 0x03 (type_tag) and a 20-byte hash
+        // Source: transaction 7c53ba0f1fc65f021749cac6a9c163e499fcb2e539b08c040802be55c33d32fe
+        // Corresponds to address `bc1qvugyzunmnq5y8alrmdrxnsh4gts9p9hmvhyd40`
+        let s = "03671041727b982843f7e3db4669c2f542e05096fb";
+        let desc = Descriptor::from_str(s).unwrap();
+        assert_eq!(desc.type_tag(), DescriptorType::P2wpkh);
+        assert_eq!(
+            desc.payload(),
+            Vec::from_hex("671041727b982843f7e3db4669c2f542e05096fb").unwrap()
+        );
+
+        // P2WSH
+        // Using 0x4 (type_tag) and a 32-byte hash
+        // Source: transaction fbf3517516ebdf03358a9ef8eb3569f96ac561c162524e37e9088eb13b228849
+        // Corresponds to address `bc1qvhu3557twysq2ldn6dut6rmaj3qk04p60h9l79wk4lzgy0ca8mfsnffz65`
+        let s = "0465f91a53cb7120057db3d378bd0f7d944167d43a7dcbff15d6afc4823f1d3ed3";
+        let desc = Descriptor::from_str(s).unwrap();
+        assert_eq!(desc.type_tag(), DescriptorType::P2wsh);
+        assert_eq!(
+            desc.payload(),
+            Vec::from_hex("65f91a53cb7120057db3d378bd0f7d944167d43a7dcbff15d6afc4823f1d3ed3")
+                .unwrap()
+        );
+
+        // P2TR
+        // Using 0x5 (type_tag) and a 32-byte hash
+        // Source: transaction a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec
+        // Corresponds to address `bc1ppuxgmd6n4j73wdp688p08a8rte97dkn5n70r2ym6kgsw0v3c5ensrytduf`
+        let s = "050f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667";
+        let desc = Descriptor::from_str(s).unwrap();
+        assert_eq!(desc.type_tag(), DescriptorType::P2tr);
+        assert_eq!(
+            desc.payload(),
+            Vec::from_hex("0f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667")
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn to_string() {
+        let original = "00636861726c6579206c6f766573206865696469";
+        let desc = Descriptor::from_bytes(&[
+            0, 99, 104, 97, 114, 108, 101, 121, 32, 108, 111, 118, 101, 115, 32, 104, 101, 105,
+            100, 105,
+        ])
+        .unwrap();
+        let s = desc.to_string();
+        assert_eq!(s, original);
+    }
+
+    #[test]
+    fn invalid_from_str() {
+        // Invalid type tag
+        let s = "060000000000000000000000000000000000000000000000000000000000000000";
+        assert!(Descriptor::from_str(s).is_err());
+
+        // Invalid payload length
+        // OP_RETURN with 81 bytes
+        let s = "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+        assert!(Descriptor::from_str(s).is_err());
+
+        // P2PKH with 19 bytes
+        let s = "0100000000000000000000000000000000000000";
+        assert!(Descriptor::from_str(s).is_err());
+
+        // P2TR with 33 bytes
     }
 }

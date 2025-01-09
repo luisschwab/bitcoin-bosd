@@ -1,0 +1,19 @@
+[package]
+name = "bitcoin-bosd"
+version = "0.0.0"
+edition = "2021"
+authors = [
+  "Trey Del Bonis <trey@alpenlabs.io>, Jose Storopoli <jose@alpenlabs.io>",
+]
+description = "Rust implementation of a Bitcoin binary output script descriptor (BOSD)"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+
+[dependencies]
+
+[profile.release]
+opt-level = "z"   # Optimized for size, use 3 for speed
+lto = true        # Enable Link Time Optimization
+codegen-units = 1 # Reduced to increase optimizations
+panic = "abort"   # Abort on panic
+strip = "symbols" # Strip symbols from binary

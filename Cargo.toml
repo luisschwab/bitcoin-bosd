@@ -3,13 +3,24 @@ name = "bitcoin-bosd"
 version = "0.0.0"
 edition = "2021"
 authors = [
-  "Trey Del Bonis <trey@alpenlabs.io>, Jose Storopoli <jose@alpenlabs.io>",
+  "Trey Del Bonis <trey@alpenlabs.io>",
+  "Jose Storopoli <jose@alpenlabs.io>",
 ]
 description = "Rust implementation of a Bitcoin binary output script descriptor (BOSD)"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 
 [dependencies]
+bitcoin = { version = "0.32.5", optional = true }
+borsh = { version = "1.5.3", optional = true }
+serde = { version = "1.0.217", optional = true }
+thiserror = "2.0.10"
+
+[features]
+default = ["address", "serde"]
+address = ["dep:bitcoin"]
+serde = ["dep:serde"]
+borsh = ["dep:borsh"]
 
 [profile.release]
 opt-level = "z"   # Optimized for size, use 3 for speed

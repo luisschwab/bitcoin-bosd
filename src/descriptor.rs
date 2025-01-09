@@ -110,6 +110,19 @@ impl Descriptor {
         }
     }
 
+    /// Returns the bytes representation of the descriptor.
+    ///
+    /// That is:
+    ///
+    /// - 1-byte type tag.
+    /// - arbitrary-sized payload.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(1 + self.payload.len());
+        bytes.push(self.type_tag.to_u8());
+        bytes.extend_from_slice(&self.payload);
+        bytes
+    }
+
     /// Returns the type tag of the descriptor.
     pub fn type_tag(&self) -> DescriptorType {
         self.type_tag
@@ -255,6 +268,16 @@ mod tests {
         // P2TR with 33 bytes
         let bytes = [5; 34];
         assert!(Descriptor::from_bytes(&bytes).is_err());
+    }
+    #[test]
+    fn descriptor_to_bytes() {
+        let original: &[u8; 20] = &[
+            0, 99, 104, 97, 114, 108, 101, 121, 32, 108, 111, 118, 101, 115, 32, 104, 101, 105,
+            100, 105,
+        ];
+        let desc = Descriptor::from_str("00636861726c6579206c6f766573206865696469").unwrap();
+        let bytes = desc.to_bytes();
+        assert_eq!(bytes, original);
     }
 
     #[test]

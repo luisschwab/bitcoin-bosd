@@ -11,7 +11,7 @@ use bitcoin::script::witness_program::Error as WitnessProgramError;
 use bitcoin::secp256k1::Error as Secp256k1Error;
 
 /// Errors related to [`Descriptor`](crate::Descriptor).
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Eq)]
 pub enum DescriptorError {
     /// Missing type tag
     #[error("missing type tag")]

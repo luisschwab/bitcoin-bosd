@@ -139,6 +139,11 @@ impl Descriptor {
         }
     }
 
+    /// Constructs a new [`Descriptor`] from a byte [`Vec`].
+    pub fn from_vec(bytes: Vec<u8>) -> Result<Self, DescriptorError> {
+        Self::from_bytes(&bytes)
+    }
+
     /// Returns the bytes representation of the descriptor.
     ///
     /// That is:
@@ -185,6 +190,54 @@ impl FromStr for Descriptor {
         let bytes = Vec::from_hex(s)?;
         Self::from_bytes(&bytes)
     }
+}
+
+/// Generates a function that converts a [`Descriptor`] into a fixed-size byte array.
+///
+/// This macro generates a function named `to_fixed_bytes` that takes a [`Descriptor`]
+/// and returns a fixed-size byte array of the specified size.
+///
+/// # Example with P2PKH
+///
+/// ```
+/// # use std::str::FromStr;
+/// #
+/// # use bitcoin_bosd::{Descriptor, fixed_bytes};
+/// #
+/// # fn main() {
+/// fixed_bytes!(20); // Generates to_fixed_bytes for P2PKH/P2SH
+/// let desc = Descriptor::from_str("01b8268ce4d481413c4e848ff353cd16104291c45b").unwrap();
+/// let bytes = to_fixed_bytes(&desc);
+/// assert_eq!(bytes.len(), 20);
+/// # }
+/// ```
+///
+/// # Example with P2TR
+///
+/// ```
+/// # use std::str::FromStr;
+/// #
+/// # use bitcoin_bosd::{Descriptor, fixed_bytes};
+/// #
+/// # fn main() {
+/// fixed_bytes!(32); // Generates to_fixed_bytes for P2TR/P2WSH
+/// let desc = Descriptor::from_str(
+///     "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667",
+/// ).unwrap();
+/// let bytes = to_fixed_bytes(&desc);
+/// assert_eq!(bytes.len(), 32);
+/// # }
+/// ```
+#[macro_export]
+macro_rules! fixed_bytes {
+    ($size:literal) => {
+        fn to_fixed_bytes(descriptor: &Descriptor) -> [u8; $size] {
+            let mut bytes = [0u8; $size];
+            let len = descriptor.payload().len().min($size);
+            bytes[..len].copy_from_slice(&descriptor.payload()[..len]);
+            bytes
+        }
+    };
 }
 
 /// The type tag of a [`Descriptor`].
@@ -346,7 +399,7 @@ mod tests {
         );
 
         // P2WSH
-        // Using 0x4 (type_tag) and a 32-byte hash
+        // Using 0x3 (type_tag) and a 32-byte hash
         // Source: transaction fbf3517516ebdf03358a9ef8eb3569f96ac561c162524e37e9088eb13b228849
         // Corresponds to address `bc1qvhu3557twysq2ldn6dut6rmaj3qk04p60h9l79wk4lzgy0ca8mfsnffz65`
         let s = "0365f91a53cb7120057db3d378bd0f7d944167d43a7dcbff15d6afc4823f1d3ed3";
@@ -359,7 +412,7 @@ mod tests {
         );
 
         // P2TR
-        // Using 0x5 (type_tag) and a 32-byte hash
+        // Using 0x4 (type_tag) and a 32-byte hash
         // Source: transaction a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec
         // Corresponds to address `bc1ppuxgmd6n4j73wdp688p08a8rte97dkn5n70r2ym6kgsw0v3c5ensrytduf`
         let s = "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667";
@@ -402,5 +455,24 @@ mod tests {
         // P2TR with 33 bytes
         let s = "04000000000000000000000000000000000000000000000000000000000000000000";
         assert!(Descriptor::from_str(s).is_err());
+    }
+
+    #[test]
+    fn test_p2tr_fixed_bytes() {
+        fixed_bytes!(32); // Generates to_fixed_bytes for P2TR/P2WSH
+        let desc = Descriptor::from_str(
+            "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667",
+        )
+        .unwrap();
+        let bytes = to_fixed_bytes(&desc);
+        assert_eq!(bytes.len(), 32);
+    }
+
+    #[test]
+    fn test_p2pkh_fixed_bytes() {
+        fixed_bytes!(20); // Generates to_fixed_bytes for P2PKH/P2SH
+        let desc = Descriptor::from_str("01b8268ce4d481413c4e848ff353cd16104291c45b").unwrap();
+        let bytes = to_fixed_bytes(&desc);
+        assert_eq!(bytes.len(), 20);
     }
 }

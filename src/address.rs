@@ -5,9 +5,11 @@
 //! Note you need to use the `address` feature.
 use bitcoin::{
     address::AddressData,
-    hashes::{hash160::Hash, Hash as _},
+    hashes::{hash160::Hash as Hash160, sha256::Hash as Hash256, Hash as _},
     key::{TapTweak, TweakedPublicKey},
-    Address, Network, ScriptBuf, ScriptHash, WitnessProgram, WitnessVersion, XOnlyPublicKey,
+    opcodes::all::OP_RETURN,
+    Address, Network, PubkeyHash, ScriptBuf, ScriptHash, WPubkeyHash, WScriptHash, WitnessProgram,
+    WitnessVersion, XOnlyPublicKey,
 };
 
 use crate::{fixed_bytes, Descriptor, DescriptorError, DescriptorType::*};
@@ -21,14 +23,14 @@ impl Descriptor {
             P2pkh => {
                 fixed_bytes!(20);
                 let bytes = to_fixed_bytes(self);
-                let hash = Hash::from_bytes_ref(&bytes);
+                let hash = Hash160::from_bytes_ref(&bytes);
                 let address = Address::p2pkh(*hash, network);
                 Ok(address)
             }
             P2sh => {
                 fixed_bytes!(20);
                 let bytes = to_fixed_bytes(self);
-                let hash = Hash::from_bytes_ref(&bytes);
+                let hash = Hash160::from_bytes_ref(&bytes);
                 let script_hash = ScriptHash::from_raw_hash(*hash);
                 let address = Address::p2sh_from_hash(script_hash, network);
                 Ok(address)
@@ -64,8 +66,73 @@ impl Descriptor {
         }
     }
 
-    pub fn to_script_pubkey(&self) -> ScriptBuf {
-        todo!()
+    /// Converts the [`Descriptor`] to a Bitcoin [`ScriptBuf`].
+    ///
+    /// This is a standard relay-safe ScriptPubKey for a Bitcoin output.
+    pub fn to_script(&self) -> ScriptBuf {
+        let type_tag = self.type_tag();
+        match type_tag {
+            OpReturn => {
+                // NOTE: We cannot do the canonical construction using
+                //       `ScriptBuf::push_slice(payload)` since it needs the
+                //       damn payload to be Sized.
+                //       There's no way to construct this using Rust
+                //       safe or unsafe from an runtime-only known payload.
+                //
+                //       This is safe because we can only construct an `OP_RETURN`
+                //       `Descriptor` that has a length of maximum 80 bytes.
+                //
+                //       The construction is:
+                //       - OP_RETURN
+                //       - payload length
+                //       - payload
+                let payload = self.payload();
+                let payload_len = payload.len() as u8;
+                let op_return = OP_RETURN.to_u8();
+                let bytes = [&[op_return], &[payload_len], payload].concat();
+                let script = ScriptBuf::from_bytes(bytes);
+                assert!(script.is_op_return());
+                script
+            }
+            P2pkh => {
+                fixed_bytes!(20);
+                let bytes = to_fixed_bytes(self);
+                let hash = Hash160::from_bytes_ref(&bytes);
+                let pubkey_hash = PubkeyHash::from_raw_hash(*hash);
+                ScriptBuf::new_p2pkh(&pubkey_hash)
+            }
+            P2sh => {
+                fixed_bytes!(20);
+                let bytes = to_fixed_bytes(self);
+                let hash = Hash160::from_bytes_ref(&bytes);
+                let script_hash = ScriptHash::from_raw_hash(*hash);
+                ScriptBuf::new_p2sh(&script_hash)
+            }
+            P2wpkh => {
+                fixed_bytes!(20);
+                let bytes = to_fixed_bytes(self);
+                let hash = Hash160::from_bytes_ref(&bytes);
+                let wpubkey_hash = WPubkeyHash::from_raw_hash(*hash);
+                ScriptBuf::new_p2wpkh(&wpubkey_hash)
+            }
+            P2wsh => {
+                fixed_bytes!(32);
+                let bytes = to_fixed_bytes(self);
+                let hash = Hash256::from_bytes_ref(&bytes);
+                let wscript_hash = WScriptHash::from_raw_hash(*hash);
+                ScriptBuf::new_p2wsh(&wscript_hash)
+            }
+            P2tr => {
+                fixed_bytes!(32);
+                let bytes = to_fixed_bytes(self);
+                // WARN: we are assuming that the X-only public key is already tweaked
+                //       and not the internal key.
+                //       See [BIP 341](https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki)
+                //       for more details.
+                let xonly_pubkey = XOnlyPublicKey::from_slice(&bytes).expect("infallible");
+                ScriptBuf::new_p2tr_tweaked(xonly_pubkey.dangerous_assume_tweaked())
+            }
+        }
     }
 }
 
@@ -208,6 +275,8 @@ impl From<TweakedPublicKey> for Descriptor {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use bitcoin::address::NetworkUnchecked;
 
     use super::*;
@@ -299,6 +368,87 @@ mod tests {
 
         let address_translated = desc.to_address(Network::Bitcoin).unwrap();
         assert_eq!(address, address_translated);
+    }
+
+    #[test]
+    fn op_return_script() {
+        // OP_RETURN in hex string replacing the 6a (`OP_RETURN`)
+        // for a 0x00 (type_tag) byte for `OP_RETURN`.
+        // Source: https://bitcoin.stackexchange.com/a/29555
+        //         and transaction 8bae12b5f4c088d940733dcd1455efc6a3a69cf9340e17a981286d3778615684
+        let s = "00636861726c6579206c6f766573206865696469";
+        let desc = Descriptor::from_str(s).unwrap();
+
+        let script = desc.to_script();
+        assert!(script.is_op_return());
+        // Maximum size is 83 bytes.
+        // See: https://github.com/bitcoin/bitcoin/blob/master/doc/release-notes/release-notes-0.12.0.md#relay-any-sequence-of-pushdatas-in-op_return-outputs-now-allowed
+        assert!(script.len() < 83);
+    }
+
+    #[test]
+    fn p2pkh_script() {
+        // P2PKH
+        // Using 0x01 (type_tag) and a 20-byte hash
+        // Source: transaction 8bae12b5f4c088d940733dcd1455efc6a3a69cf9340e17a981286d3778615684
+        // Corresponds to address `1HnhWpkMHMjgt167kvgcPyurMmsCQ2WPgg`
+        let s = "01b8268ce4d481413c4e848ff353cd16104291c45b";
+        let desc = Descriptor::from_str(s).unwrap();
+
+        let script = desc.to_script();
+        assert!(script.is_p2pkh())
+    }
+
+    #[test]
+    fn p2sh_script() {
+        // P2SH
+        // Using 0x02 (type_tag) and a 20-byte hash
+        // Source: transaction a0f1aaa2fb4582c89e0511df0374a5a2833bf95f7314f4a51b55b7b71e90ce0f
+        // Corresponds to address `3CK4fEwbMP7heJarmU4eqA3sMbVJyEnU3V`
+        let s = "02748284390f9e263a4b766a75d0633c50426eb875";
+        let desc = Descriptor::from_str(s).unwrap();
+
+        let script = desc.to_script();
+        assert!(script.is_p2sh())
+    }
+
+    #[test]
+    fn p2wpkh_script() {
+        // P2WPKH
+        // Using 0x03 (type_tag) and a 20-byte hash
+        // Source: transaction 7c53ba0f1fc65f021749cac6a9c163e499fcb2e539b08c040802be55c33d32fe
+        // Corresponds to address `bc1qvugyzunmnq5y8alrmdrxnsh4gts9p9hmvhyd40`
+        let s = "03671041727b982843f7e3db4669c2f542e05096fb";
+        let desc = Descriptor::from_str(s).unwrap();
+
+        let script = desc.to_script();
+        assert!(script.is_p2wpkh())
+    }
+
+    #[test]
+    fn p2wsh_script() {
+        // P2WSH
+        // Using 0x3 (type_tag) and a 32-byte hash
+        // Source: transaction fbf3517516ebdf03358a9ef8eb3569f96ac561c162524e37e9088eb13b228849
+        // Corresponds to address `bc1qvhu3557twysq2ldn6dut6rmaj3qk04p60h9l79wk4lzgy0ca8mfsnffz65`
+        let s = "0365f91a53cb7120057db3d378bd0f7d944167d43a7dcbff15d6afc4823f1d3ed3";
+        let desc = Descriptor::from_str(s).unwrap();
+
+        let script = desc.to_script();
+        assert!(script.is_p2wsh())
+    }
+
+    #[test]
+    fn p2tr_script() {
+        // P2TR
+        // Using 0x4 (type_tag) and a 32-byte hash
+        // Source: transaction a7115c7267dbb4aab62b37818d431b784fe731f4d2f9fa0939a9980d581690ec
+        // Corresponds to address `bc1ppuxgmd6n4j73wdp688p08a8rte97dkn5n70r2ym6kgsw0v3c5ensrytduf`
+        let s = "040f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667";
+        let desc = Descriptor::from_str(s).unwrap();
+
+        let script = desc.to_script();
+        assert!(script.is_p2tr())
     }
 
     #[test]

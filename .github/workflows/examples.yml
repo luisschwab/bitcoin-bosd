@@ -1,0 +1,32 @@
+name: Examples
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  examples:
+    name: Run Examples
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        examples:
+          - psbt
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Run the examples
+        run: cargo run --example ${{ matrix.examples }}

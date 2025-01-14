@@ -36,3 +36,6 @@ lto = true        # Enable Link Time Optimization
 codegen-units = 1 # Reduced to increase optimizations
 panic = "abort"   # Abort on panic
 strip = "symbols" # Strip symbols from binary
+
+[[example]]
+name = "psbt"

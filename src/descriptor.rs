@@ -69,6 +69,8 @@ pub struct Descriptor {
 
 impl Descriptor {
     /// Constructs a new [`Descriptor`] from a byte slice.
+    ///
+    /// Users are advised to use the `new_*` methods whenever possible.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, DescriptorError> {
         // We must have at least a type tag
         let type_tag = *bytes.first().ok_or(DescriptorError::MissingTypeTag)?;
@@ -148,8 +150,141 @@ impl Descriptor {
     }
 
     /// Constructs a new [`Descriptor`] from a byte [`Vec`].
+    ///
+    /// Users are advised to use the `new_*` methods whenever possible.
     pub fn from_vec(bytes: Vec<u8>) -> Result<Self, DescriptorError> {
         Self::from_bytes(&bytes)
+    }
+
+    /// Constructs a new [`Descriptor`] from an `OP_RETURN` payload.
+    ///
+    /// The payload is expected to be at most 80 bytes.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bitcoin_bosd::{Descriptor, DescriptorType};
+    /// let payload = b"hello world";
+    /// let desc = Descriptor::new_op_return(payload).expect("valid payload that is at most 80 bytes");
+    /// # assert_eq!(desc.type_tag(), DescriptorType::OpReturn);
+    /// # assert_eq!(desc.payload(), b"hello world");
+    /// ```
+    pub fn new_op_return(payload: &[u8]) -> Result<Self, DescriptorError> {
+        let type_tag = DescriptorType::OpReturn;
+        let payload_len = payload.len();
+        if payload_len > MAX_OP_RETURN_LEN {
+            Err(DescriptorError::InvalidPayloadLength(payload_len))
+        } else {
+            Ok(Self {
+                type_tag,
+                payload: payload.to_vec(),
+            })
+        }
+    }
+
+    /// Constructs a new [`Descriptor`] from a P2PKH payload.
+    ///
+    /// The payload is expected to be a valid 20-byte hash.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bitcoin_bosd::{Descriptor, DescriptorType, descriptor::P2PKH_LEN};
+    /// let payload = [0u8; P2PKH_LEN]; // all zeros, don't use in production
+    /// let desc = Descriptor::new_p2pkh(&payload);
+    /// # assert_eq!(desc.type_tag(), DescriptorType::P2pkh);
+    /// # assert_eq!(desc.payload(), [0u8; P2PKH_LEN]);
+    /// ```
+    pub fn new_p2pkh(payload: &[u8; P2PKH_LEN]) -> Self {
+        let type_tag = DescriptorType::P2pkh;
+        Self {
+            type_tag,
+            payload: payload.to_vec(),
+        }
+    }
+
+    /// Constructs a new [`Descriptor`] from a P2SH payload.
+    ///
+    /// The payload is expected to be a valid 20-byte hash.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bitcoin_bosd::{Descriptor, DescriptorType, descriptor::P2SH_LEN};
+    /// let payload = [0u8; P2SH_LEN]; // all zeros, don't use in production
+    /// let desc = Descriptor::new_p2sh(&payload);
+    /// # assert_eq!(desc.type_tag(), DescriptorType::P2sh);
+    /// # assert_eq!(desc.payload(), [0u8; P2SH_LEN]);
+    /// ```
+    pub fn new_p2sh(payload: &[u8; P2SH_LEN]) -> Self {
+        let type_tag = DescriptorType::P2sh;
+        Self {
+            type_tag,
+            payload: payload.to_vec(),
+        }
+    }
+
+    /// Constructs a new [`Descriptor`] from a P2WPKH payload.
+    ///
+    /// The payload is expected to be a valid 20-byte hash.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bitcoin_bosd::{Descriptor, DescriptorType, descriptor::P2WPKH_LEN};
+    /// let payload = [0u8; P2WPKH_LEN]; // all zeros, don't use in production
+    /// let desc = Descriptor::new_p2wpkh(&payload);
+    /// # assert_eq!(desc.type_tag(), DescriptorType::P2wpkh);
+    /// # assert_eq!(desc.payload(), [0u8; P2WPKH_LEN]);
+    /// ```
+    pub fn new_p2wpkh(payload: &[u8; P2WPKH_LEN]) -> Self {
+        let type_tag = DescriptorType::P2wpkh;
+        Self {
+            type_tag,
+            payload: payload.to_vec(),
+        }
+    }
+
+    /// Constructs a new [`Descriptor`] from a P2WSH payload.
+    ///
+    /// The payload is expected to be a valid 32-byte hash.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bitcoin_bosd::{Descriptor, DescriptorType, descriptor::P2WSH_LEN};
+    /// let payload = [0u8; P2WSH_LEN]; // all zeros, don't use in production
+    /// let desc = Descriptor::new_p2wsh(&payload);
+    /// # assert_eq!(desc.type_tag(), DescriptorType::P2wsh);
+    /// # assert_eq!(desc.payload(), [0u8; P2WSH_LEN]);
+    /// ```
+    pub fn new_p2wsh(payload: &[u8; P2WSH_LEN]) -> Self {
+        let type_tag = DescriptorType::P2wsh;
+        Self {
+            type_tag,
+            payload: payload.to_vec(),
+        }
+    }
+
+    /// Constructs a new [`Descriptor`] from a P2TR payload.
+    ///
+    /// The payload is expected to be a valid 32-byte X-only public key.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bitcoin_bosd::{Descriptor, DescriptorType, descriptor::P2TR_LEN};
+    /// let payload = [0u8; P2TR_LEN]; // all zeros, don't use in production
+    /// let desc = Descriptor::new_p2tr(&payload);
+    /// # assert_eq!(desc.type_tag(), DescriptorType::P2tr);
+    /// # assert_eq!(desc.payload(), [0u8; P2TR_LEN]);
+    /// ```
+    pub fn new_p2tr(payload: &[u8; P2TR_LEN]) -> Self {
+        let type_tag = DescriptorType::P2tr;
+        Self {
+            type_tag,
+            payload: payload.to_vec(),
+        }
     }
 
     /// Returns the bytes representation of the descriptor.

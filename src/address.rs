@@ -14,8 +14,7 @@ use bitcoin::{
 
 use crate::{
     descriptor::{
-        P2PKH_LEN, P2PKH_TYPE_TAG, P2SH_LEN, P2SH_TYPE_TAG, P2TR_LEN, P2TR_TYPE_TAG, P2WPKH_LEN,
-        P2WPKH_P2WSH_TYPE_TAG, P2WSH_LEN,
+        P2PKH_LEN, P2SH_LEN, P2TR_LEN, P2TR_TYPE_TAG, P2WPKH_LEN, P2WPKH_P2WSH_TYPE_TAG, P2WSH_LEN,
     },
     Descriptor, DescriptorError,
     DescriptorType::*,
@@ -139,19 +138,11 @@ impl From<Address> for Descriptor {
         match address_data {
             // P2PKH
             AddressData::P2pkh { pubkey_hash } => {
-                let payload = pubkey_hash.as_raw_hash().to_byte_array();
-                let mut bytes = [0u8; 21];
-                bytes[0] = P2PKH_TYPE_TAG;
-                bytes[1..].copy_from_slice(&payload);
-                Descriptor::from_bytes(&bytes).expect("infallible")
+                Descriptor::new_p2pkh(&pubkey_hash.as_raw_hash().to_byte_array())
             }
             // P2SH
             AddressData::P2sh { script_hash } => {
-                let payload = script_hash.as_raw_hash().to_byte_array();
-                let mut bytes = [0u8; 21];
-                bytes[0] = P2SH_TYPE_TAG;
-                bytes[1..].copy_from_slice(&payload);
-                Descriptor::from_bytes(&bytes).expect("infallible")
+                Descriptor::new_p2sh(&script_hash.as_raw_hash().to_byte_array())
             }
             // SegWit V0/V1
             AddressData::Segwit { witness_program } => match witness_program.version() {
@@ -194,13 +185,15 @@ impl From<Address> for Descriptor {
     }
 }
 
+impl From<PubkeyHash> for Descriptor {
+    fn from(pubkey_hash: PubkeyHash) -> Self {
+        Descriptor::new_p2pkh(pubkey_hash.as_ref())
+    }
+}
+
 impl From<ScriptHash> for Descriptor {
     fn from(script_hash: ScriptHash) -> Self {
-        let payload: &[u8; 20] = script_hash.as_ref();
-        let mut bytes = [0u8; 21];
-        bytes[0] = P2SH_TYPE_TAG;
-        bytes[1..].copy_from_slice(payload);
-        Descriptor::from_bytes(&bytes).expect("infallible")
+        Descriptor::new_p2sh(script_hash.as_ref())
     }
 }
 
@@ -441,6 +434,22 @@ mod tests {
 
         let script = desc.to_script();
         assert!(script.is_p2tr())
+    }
+
+    #[test]
+    fn from_pubkey_hash() {
+        // P2PKH
+        // Using 0x01 (type_tag) and a 20-byte hash
+        // Source: transaction 8bae12b5f4c088d940733dcd1455efc6a3a69cf9340e17a981286d3778615684
+        // Corresponds to address `1HnhWpkMHMjgt167kvgcPyurMmsCQ2WPgg`
+        let hash = "b8268ce4d481413c4e848ff353cd16104291c45b";
+        let hash = hash.parse::<PubkeyHash>().unwrap();
+        let desc = Descriptor::from(hash);
+        assert_eq!(desc.type_tag(), P2pkh);
+
+        let address = Address::p2pkh(hash, Network::Bitcoin);
+        let address_translated = desc.to_address(Network::Bitcoin).unwrap();
+        assert_eq!(address, address_translated);
     }
 
     #[test]

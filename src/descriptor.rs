@@ -6,6 +6,8 @@
 //! Check this crate's top-level documentation for the
 //! specification and rationale.
 
+use core::fmt;
+
 use std::{
     fmt::{Display, Formatter},
     str::FromStr,
@@ -430,6 +432,19 @@ impl DescriptorType {
             DescriptorType::P2wpkh => 3,
             DescriptorType::P2wsh => 3,
             DescriptorType::P2tr => 4,
+        }
+    }
+}
+
+impl Display for DescriptorType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DescriptorType::OpReturn => write!(f, "OP_RETURN"),
+            DescriptorType::P2pkh => write!(f, "P2PKH"),
+            DescriptorType::P2sh => write!(f, "P2SH"),
+            DescriptorType::P2wpkh => write!(f, "P2WPKH"),
+            DescriptorType::P2wsh => write!(f, "P2WSH"),
+            DescriptorType::P2tr => write!(f, "P2TR"),
         }
     }
 }

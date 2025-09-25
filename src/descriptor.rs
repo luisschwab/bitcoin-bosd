@@ -24,7 +24,7 @@ use crate::error::DescriptorError;
 pub(crate) const OP_RETURN_TYPE_TAG: u8 = 0;
 
 /// Maximum length of `OP_RETURN` payload.
-pub const MAX_OP_RETURN_LEN: usize = 80;
+pub const MAX_OP_RETURN_LEN: usize = 100_000;
 
 /// `P2PKH` type tag.
 pub(crate) const P2PKH_TYPE_TAG: u8 = 1;
@@ -82,7 +82,7 @@ impl Descriptor {
 
         // Validate the payload length against the type
         match type_tag {
-            // OP_RETURN must be at most 80 bytes.
+            // OP_RETURN must be at most 100KB.
             OP_RETURN_TYPE_TAG => {
                 let payload_len = payload.len();
                 if payload_len > MAX_OP_RETURN_LEN {
@@ -157,14 +157,14 @@ impl Descriptor {
 
     /// Constructs a new [`Descriptor`] from an `OP_RETURN` payload.
     ///
-    /// The payload is expected to be at most 80 bytes.
+    /// The payload is expected to be at most 100KB.
     ///
     /// # Example
     ///
     /// ```
     /// # use bitcoin_bosd::{Descriptor, DescriptorType};
     /// let payload = b"hello world";
-    /// let desc = Descriptor::new_op_return(payload).expect("valid payload that is at most 80 bytes");
+    /// let desc = Descriptor::new_op_return(payload).expect("valid payload that is at most 100KB");
     /// # assert_eq!(desc.type_tag(), DescriptorType::OpReturn);
     /// # assert_eq!(desc.payload(), b"hello world");
     /// ```
@@ -453,6 +453,61 @@ impl Display for DescriptorType {
 mod tests {
     use super::*;
 
+    #[cfg(test)]
+    mod proptest_tests {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            /// Test that any valid `OP_RETURN` payload (0-100KB) roundtrips correctly.
+            #[test]
+            fn op_return_roundtrip_property(data in prop::collection::vec(any::<u8>(), 0..=MAX_OP_RETURN_LEN)) {
+                if data.len() <= MAX_OP_RETURN_LEN {
+                    let mut bytes = vec![0u8; data.len() + 1];
+                    bytes[0] = 0; // OP_RETURN type tag
+                    bytes[1..].copy_from_slice(&data);
+
+                    let descriptor = Descriptor::from_bytes(&bytes).expect("valid OP_RETURN should parse");
+                    assert_eq!(descriptor.type_tag(), DescriptorType::OpReturn);
+                    assert_eq!(descriptor.payload(), &data);
+                    assert_eq!(&descriptor.to_bytes(), &bytes);
+                }
+            }
+
+            /// Test that `OP_RETURN` payloads larger than 100KB are rejected.
+            #[test]
+            fn op_return_invalid_size_property(data in prop::collection::vec(any::<u8>(), (MAX_OP_RETURN_LEN + 1)..=(MAX_OP_RETURN_LEN * 2))) {
+                let mut bytes = vec![0u8; data.len() + 1];
+                bytes[0] = 0; // OP_RETURN type tag
+                bytes[1..].copy_from_slice(&data);
+
+                assert!(Descriptor::from_bytes(&bytes).is_err(),
+                    "OP_RETURN payload of {} bytes should be rejected", data.len());
+            }
+
+            /// Test that exactly 100KB `OP_RETURN` payloads are accepted.
+            #[test]
+            fn op_return_max_size_property(data in prop::collection::vec(any::<u8>(), MAX_OP_RETURN_LEN..=MAX_OP_RETURN_LEN)) {
+                let mut bytes = vec![0u8; data.len() + 1];
+                bytes[0] = 0; // OP_RETURN type tag
+                bytes[1..].copy_from_slice(&data);
+
+                let descriptor = Descriptor::from_bytes(&bytes).expect("100KB OP_RETURN should be valid");
+                assert_eq!(descriptor.type_tag(), DescriptorType::OpReturn);
+                assert_eq!(descriptor.payload(), &data);
+                assert_eq!(&descriptor.to_bytes(), &bytes);
+            }
+
+            /// Test that any valid descriptor roundtrips correctly.
+            #[test]
+            fn descriptor_roundtrip_property(data in prop::collection::vec(any::<u8>(), 1..=(MAX_OP_RETURN_LEN + 1))) {
+                if let Ok(descriptor) = Descriptor::from_bytes(&data) {
+                    assert_eq!(&descriptor.to_bytes(), &data);
+                }
+            }
+        }
+    }
+
     #[test]
     fn descriptor_from_bytes() {
         let bytes = [0, 1, 2, 3, 4, 5];
@@ -483,8 +538,9 @@ mod tests {
         assert!(Descriptor::from_bytes(&bytes).is_err());
 
         // Invalid payload length
-        // OP_RETURN with 81 bytes
-        let bytes = [0; 82];
+        // OP_RETURN with 100001 bytes (MAX_OP_RETURN_LEN + 1)
+        let mut bytes = vec![0; MAX_OP_RETURN_LEN + 2]; // 1 byte type tag + (MAX_OP_RETURN_LEN + 1) bytes payload
+        bytes[0] = 0; // OP_RETURN type tag
         assert!(Descriptor::from_bytes(&bytes).is_err());
 
         // P2PKH with 19 bytes
@@ -610,9 +666,9 @@ mod tests {
         assert!(Descriptor::from_str(s).is_err());
 
         // Invalid payload length
-        // OP_RETURN with 81 bytes
-        let s = "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
-        assert!(Descriptor::from_str(s).is_err());
+        // OP_RETURN with 100001 bytes (create a hex string with (MAX_OP_RETURN_LEN + 1)*2 hex chars)
+        let s = "00".to_string() + &"00".repeat(MAX_OP_RETURN_LEN + 1);
+        assert!(Descriptor::from_str(&s).is_err());
 
         // P2PKH with 19 bytes
         let s = "0100000000000000000000000000000000000000";

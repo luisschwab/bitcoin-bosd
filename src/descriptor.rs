@@ -53,6 +53,12 @@ pub(crate) const P2TR_TYPE_TAG: u8 = 4;
 /// Exact length of P2TR payload.
 pub const P2TR_LEN: usize = 32;
 
+/// `P2A` type tag.
+pub const P2A_TYPE_TAG: u8 = 5;
+
+/// Exact length of the P2A payload.
+pub const P2A_LEN: usize = 0;
+
 /// A Bitcoin Output Script Descriptor (BOSD).
 ///
 /// This is a compact binary format consisting of
@@ -140,6 +146,18 @@ impl Descriptor {
                 } else {
                     Ok(Self {
                         type_tag: DescriptorType::P2tr,
+                        payload: payload.to_vec(),
+                    })
+                }
+            }
+            // P2A must be exactly 0 bytes.
+            P2A_TYPE_TAG => {
+                let payload_len = payload.len();
+                if payload_len != P2A_LEN {
+                    Err(DescriptorError::InvalidPayloadLength(payload_len))
+                } else {
+                    Ok(Self {
+                        type_tag: DescriptorType::P2a,
                         payload: payload.to_vec(),
                     })
                 }
@@ -290,7 +308,7 @@ impl Descriptor {
 
     /// Constructs a new [`Descriptor`] from a P2TR payload.
     ///
-    /// The payload is expected to be a valid 32-byte X-only public key.A
+    /// The payload is expected to be a valid 32-byte X-only public key.
     /// This function will validate this key for you, and return an error if validation fails.
     ///
     /// # Example
@@ -314,6 +332,28 @@ impl Descriptor {
                 payload: payload.to_vec(),
             })
         }
+    }
+
+    /// Constructs a new P2A [`Descriptor`].
+    ///
+    /// An anchor output has no payload, thus making this function infallible.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use bitcoin_bosd::{Descriptor, DescriptorType, descriptor::P2A_LEN};
+    /// let payload = [0u8; P2A_LEN];
+    /// let desc = Descriptor::new_p2a(&payload).expect("empty payload");
+    /// # assert_eq!(desc.type_tag(), DescriptorType::P2a);
+    /// # assert_eq!(desc.payload(), [0u8; P2A_LEN]);
+    /// ```
+    pub fn new_p2a(payload: &[u8; P2A_LEN]) -> Result<Self, DescriptorError> {
+        let type_tag = DescriptorType::P2a;
+
+        Ok(Self {
+            type_tag,
+            payload: payload.to_vec(),
+        })
     }
 
     /// Returns the bytes representation of the descriptor.
@@ -420,6 +460,11 @@ pub enum DescriptorType {
     /// that represents the underlying taptree of script
     /// spending conditions.
     P2tr,
+
+    /// P2A.
+    ///
+    /// An anchor's descriptor has no payload.
+    P2a,
 }
 
 impl DescriptorType {
@@ -432,6 +477,7 @@ impl DescriptorType {
             DescriptorType::P2wpkh => 3,
             DescriptorType::P2wsh => 3,
             DescriptorType::P2tr => 4,
+            DescriptorType::P2a => 5,
         }
     }
 }
@@ -445,6 +491,7 @@ impl Display for DescriptorType {
             DescriptorType::P2wpkh => write!(f, "P2WPKH"),
             DescriptorType::P2wsh => write!(f, "P2WSH"),
             DescriptorType::P2tr => write!(f, "P2TR"),
+            DescriptorType::P2a => write!(f, "P2A"),
         }
     }
 }
@@ -526,15 +573,16 @@ mod tests {
         for tag in 0..=u8::MAX {
             let bytes = [tag];
 
-            // An empty payload is currently invalid for all types except `OP_RETURN`
+            // An empty payload is currently invalid for all types except `OP_RETURN` and `P2A`.
             match tag {
                 OP_RETURN_TYPE_TAG => assert!(Descriptor::from_bytes(&bytes).is_ok()),
+                P2A_TYPE_TAG => assert!(Descriptor::from_bytes(&bytes).is_ok()),
                 _ => assert!(Descriptor::from_bytes(&bytes).is_err()),
             }
         }
 
         // Invalid type tag
-        let bytes = [5, 1, 2, 3, 4, 5, 6];
+        let bytes = [7, 1, 2, 3, 4, 7, 6];
         assert!(Descriptor::from_bytes(&bytes).is_err());
 
         // Invalid payload length
@@ -549,6 +597,10 @@ mod tests {
 
         // P2TR with 33 bytes
         let bytes = [4; 34];
+        assert!(Descriptor::from_bytes(&bytes).is_err());
+
+        // P2A with 1 byte.
+        let bytes = [5; 2];
         assert!(Descriptor::from_bytes(&bytes).is_err());
     }
 
@@ -571,6 +623,7 @@ mod tests {
         assert_eq!(DescriptorType::P2wpkh.to_u8(), 3);
         assert_eq!(DescriptorType::P2wsh.to_u8(), 3);
         assert_eq!(DescriptorType::P2tr.to_u8(), 4);
+        assert_eq!(DescriptorType::P2a.to_u8(), 5);
     }
 
     #[test]
@@ -645,6 +698,15 @@ mod tests {
             Vec::from_hex("0f0c8db753acbd17343a39c2f3f4e35e4be6da749f9e35137ab220e7b238a667")
                 .unwrap()
         );
+
+        // P2A
+        // Using 0x05 (type_tag)
+        // Source: transaction c054743f0f3ecfac2cf08c40c7dd36fcb38928cf8e07d179693ca2692d041848
+        // Corresponds to address `bc1pfeessrawgf`
+        let s = "05";
+        let desc = Descriptor::from_str(s).unwrap();
+        assert_eq!(desc.type_tag(), DescriptorType::P2a);
+        assert_eq!(desc.payload(), Vec::from_hex("").unwrap());
     }
 
     #[test]
@@ -662,7 +724,7 @@ mod tests {
     #[test]
     fn invalid_from_str() {
         // Invalid type tag
-        let s = "050000000000000000000000000000000000000000000000000000000000000000";
+        let s = "060000000000000000000000000000000000000000000000000000000000000000";
         assert!(Descriptor::from_str(s).is_err());
 
         // Invalid payload length
@@ -676,6 +738,10 @@ mod tests {
 
         // P2TR with 33 bytes
         let s = "04000000000000000000000000000000000000000000000000000000000000000000";
+        assert!(Descriptor::from_str(s).is_err());
+
+        // P2A with 1 byte.
+        let s = "0500";
         assert!(Descriptor::from_str(s).is_err());
     }
 

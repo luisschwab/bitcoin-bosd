@@ -14,7 +14,8 @@ use bitcoin::{
 
 use crate::{
     descriptor::{
-        P2PKH_LEN, P2SH_LEN, P2TR_LEN, P2TR_TYPE_TAG, P2WPKH_LEN, P2WPKH_P2WSH_TYPE_TAG, P2WSH_LEN,
+        P2A_TYPE_TAG, P2PKH_LEN, P2SH_LEN, P2TR_LEN, P2TR_TYPE_TAG, P2WPKH_LEN,
+        P2WPKH_P2WSH_TYPE_TAG, P2WSH_LEN,
     },
     Descriptor, DescriptorError,
     DescriptorType::*,
@@ -62,6 +63,11 @@ impl Descriptor {
                 //       for more details.
                 let address =
                     Address::p2tr_tweaked(xonly_pubkey.dangerous_assume_tweaked(), network);
+                Ok(address)
+            }
+            P2a => {
+                let witness_program = WitnessProgram::p2a();
+                let address = Address::from_witness_program(witness_program, network);
                 Ok(address)
             }
         }
@@ -128,6 +134,7 @@ impl Descriptor {
                 let xonly_pubkey = XOnlyPublicKey::from_slice(&bytes).expect("infallible");
                 ScriptBuf::new_p2tr_tweaked(xonly_pubkey.dangerous_assume_tweaked())
             }
+            P2a => ScriptBuf::new_p2a(),
         }
     }
 }
@@ -168,13 +175,26 @@ impl From<Address> for Descriptor {
                         _ => unreachable!(),
                     }
                 }
-                // P2TR: 32 bytes
                 WitnessVersion::V1 => {
-                    let x_only_pk = witness_program.program().as_bytes();
-                    let mut bytes = [0u8; 33];
-                    bytes[0] = P2TR_TYPE_TAG;
-                    bytes[1..].copy_from_slice(x_only_pk);
-                    Descriptor::from_bytes(&bytes).expect("infallible")
+                    let payload = witness_program.program().as_bytes();
+                    let payload_len = payload.len();
+                    match payload_len {
+                        // P2A: 2 bytes
+                        2 => {
+                            let mut bytes = [0u8; 1];
+                            bytes[0] = P2A_TYPE_TAG;
+                            Descriptor::from_bytes(&bytes).expect("infallible")
+                        }
+                        // P2TR: 32 bytes
+                        32 => {
+                            let x_only_pk = witness_program.program().as_bytes();
+                            let mut bytes = [0u8; 33];
+                            bytes[0] = P2TR_TYPE_TAG;
+                            bytes[1..].copy_from_slice(x_only_pk);
+                            Descriptor::from_bytes(&bytes).expect("infallible")
+                        }
+                        _ => unreachable!(),
+                    }
                 }
                 // NOTE: We don't have versions higher than V2 yet.
                 _ => unreachable!(),
@@ -223,12 +243,24 @@ impl From<WitnessProgram> for Descriptor {
                     _ => unreachable!(),
                 }
             }
-            // V1 is SegWit 32-bytes P2TR
+            // V1 is SegWit 32-bytes P2TR, or 2-byte P2A
             WitnessVersion::V1 => {
-                let mut bytes = [0u8; 33];
-                bytes[0] = P2TR_TYPE_TAG;
-                bytes[1..].copy_from_slice(payload);
-                Descriptor::from_bytes(&bytes).expect("infallible")
+                let payload_len = payload.iter().len();
+                match payload_len {
+                    2 => {
+                        let mut bytes = [0u8; 1];
+                        bytes[0] = P2A_TYPE_TAG;
+                        Descriptor::from_bytes(&bytes).expect("infallible")
+                    }
+                    32 => {
+                        let mut bytes = [0u8; 33];
+                        bytes[0] = P2TR_TYPE_TAG;
+                        bytes[1..].copy_from_slice(payload);
+                        Descriptor::from_bytes(&bytes).expect("infallible")
+                    }
+                    // NOTE: cannot be anything else.
+                    _ => unreachable!(),
+                }
             }
             // NOTE: We don't have versions higher than V2 yet.
             _ => unreachable!(),
@@ -397,6 +429,23 @@ mod tests {
     }
 
     #[test]
+    fn p2a() {
+        // Using 0x05 (type_tag)
+        // Source: transaction c054743f0f3ecfac2cf08c40c7dd36fcb38928cf8e07d179693ca2692d041848
+        // Corresponds to address `bc1pfeessrawgf`
+        let address = "bc1pfeessrawgf";
+        let address = address
+            .parse::<Address<NetworkUnchecked>>()
+            .unwrap()
+            .assume_checked();
+        let desc = Descriptor::from(address.clone());
+        assert_eq!(desc.type_tag(), P2a);
+
+        let address_translated = desc.to_address(Network::Bitcoin).unwrap();
+        assert_eq!(address, address_translated);
+    }
+
+    #[test]
     fn op_return_script() {
         // OP_RETURN in hex string replacing the 6a (`OP_RETURN`)
         // for a 0x00 (type_tag) byte for `OP_RETURN`.
@@ -478,6 +527,21 @@ mod tests {
     }
 
     #[test]
+    fn p2a_script() {
+        // P2A
+        // Using 0x05 (type_tag)
+        // Source: transaction c054743f0f3ecfac2cf08c40c7dd36fcb38928cf8e07d179693ca2692d041848
+        // Corresponds to address `bc1pfeessrawgf`
+        let s = "05";
+        let desc = Descriptor::from_str(s).unwrap();
+
+        // NOTE: ScriptBuf::is_p2a is not implemented on rust-bitcoin
+        let script = desc.to_script();
+        assert_eq!(script.len(), 4);
+        assert_eq!(script.as_bytes(), &[0x51, 0x02, 0x4e, 0x73]);
+    }
+
+    #[test]
     fn from_pubkey_hash() {
         // P2PKH
         // Using 0x01 (type_tag) and a 20-byte hash
@@ -555,6 +619,22 @@ mod tests {
         let witness_program = address.witness_program().unwrap();
         let desc = Descriptor::from(witness_program);
         assert_eq!(desc.type_tag(), P2tr);
+
+        let address_translated = desc.to_address(Network::Bitcoin).unwrap();
+        assert_eq!(address, address_translated);
+
+        // P2A
+        // Using 0x05 (type_tag)
+        // Source: transaction c054743f0f3ecfac2cf08c40c7dd36fcb38928cf8e07d179693ca2692d041848
+        // Corresponds to address `bc1pfeessrawgf`
+        let address = "bc1pfeessrawgf";
+        let address = address
+            .parse::<Address<NetworkUnchecked>>()
+            .unwrap()
+            .assume_checked();
+        let witness_program = address.witness_program().unwrap();
+        let desc = Descriptor::from(witness_program);
+        assert_eq!(desc.type_tag(), P2a);
 
         let address_translated = desc.to_address(Network::Bitcoin).unwrap();
         assert_eq!(address, address_translated);

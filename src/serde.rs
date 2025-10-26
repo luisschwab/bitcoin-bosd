@@ -202,6 +202,18 @@ mod tests {
     }
 
     #[test]
+    fn serde_p2a() {
+        // P2A
+        // Using 0x05 (type_tag)
+        // Source: transaction c054743f0f3ecfac2cf08c40c7dd36fcb38928cf8e07d179693ca2692d041848
+        // Corresponds to address `bc1pfeessrawgf`
+        let descriptor = Descriptor::from_str("05").unwrap();
+
+        test_roundtrip(&descriptor);
+        assert_eq!(descriptor.type_tag(), DescriptorType::P2a);
+    }
+
+    #[test]
     fn compare_serialization_formats() {
         // P2TR
         // Using 0x04 (type_tag) and a 32-byte hash

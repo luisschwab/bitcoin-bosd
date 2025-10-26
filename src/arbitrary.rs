@@ -3,13 +3,13 @@ use bitcoin::{key::Keypair, secp256k1::SecretKey};
 use secp256k1::SECP256K1; // Global context
 
 use crate::descriptor::{
-    Descriptor, MAX_OP_RETURN_LEN, P2PKH_LEN, P2SH_LEN, P2TR_LEN, P2WPKH_LEN, P2WSH_LEN,
+    Descriptor, MAX_OP_RETURN_LEN, P2A_LEN, P2PKH_LEN, P2SH_LEN, P2TR_LEN, P2WPKH_LEN, P2WSH_LEN,
 };
 
 impl<'a> Arbitrary<'a> for Descriptor {
     fn arbitrary(u: &mut Unstructured<'a>) -> Result<Self> {
-        // First generate a random type tag (0-4)
-        let type_tag: u8 = u.int_in_range(0..=4)?;
+        // First generate a random type tag (0-5)
+        let type_tag: u8 = u.int_in_range(0..=5)?;
 
         // Generate appropriate payload based on type
         let payload = match type_tag {
@@ -59,6 +59,11 @@ impl<'a> Arbitrary<'a> for Descriptor {
                 assert_eq!(bytes.len(), P2TR_LEN);
                 bytes
             }
+            5 => {
+                // P2A: P2A_LEN bytes (0).
+                let bytes = vec![0u8; P2A_LEN];
+                bytes
+            }
             _ => unreachable!(),
         };
 
@@ -102,6 +107,7 @@ mod tests {
                     DescriptorType::P2wpkh => assert_eq!(desc.payload().len(), P2WPKH_LEN),
                     DescriptorType::P2wsh => assert_eq!(desc.payload().len(), P2WSH_LEN),
                     DescriptorType::P2tr => assert_eq!(desc.payload().len(), P2TR_LEN),
+                    DescriptorType::P2a => assert_eq!(desc.payload().len(), P2A_LEN),
                 }
             }
         }

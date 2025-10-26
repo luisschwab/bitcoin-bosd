@@ -32,6 +32,7 @@ and efficiently represent standard Bitcoin output types:
 | 2    | 20                | script hash            | P2SH          | `3...`                 |
 | 3    | 20, 32            | SegWit v0 hash         | P2WPKH, P2WSH | `bc1q...`              |
 | 4    | 32                | SegWit v1 public key   | P2TR          | `bc1p...`              |
+| 5    | 0                 | SegWit v1 Anchor       | P2A           | `bc1feessrawgf`        |
 
 ## Examples
 

@@ -49,6 +49,7 @@ context.
 | 2    | 20                | script hash            | P2SH          | `3...`                 |
 | 3    | 20, 32            | SegWit v0 hash         | P2WPKH, P2WSH | `bc1q...`              |
 | 4    | 32                | SegWit v1 public key   | P2TR          | `bc1p...`              |
+| 5    | 0                 | SegWit v1 Anchor       | P2A           | `bc1feessrawgf`        |
 
 Our goal here is in part to be a projection of the different address formats.
 So as a result we have the two legacy address formats as their own types, and
